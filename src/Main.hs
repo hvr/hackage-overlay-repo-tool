@@ -13,19 +13,42 @@ import qualified Data.Set as Set
 
 default (T.Text)
 
+data Config
+  = Config
+  { _patches   :: FP.FilePath -- ^ path to the @patches@ folder. Should contain @<package-id>-<package-version>.patch@ files.
+  , _keys      :: FP.FilePath -- ^ path to the keys, as generated with the @hackage-repo-tool@.
+  , _template  :: FP.FilePath -- ^ template repo. This will be copied into the temporary repo, and can contain additional files as needed.
+  , _cabal_cfg :: FP.FilePath -- ^ the cabal config file to use. This will be used to download a copy of the base hackage repository from on which this overlay will be based.
+  , _remote_repo_cache :: FP.FilePath -- ^ path to the package cache ( should match the one in the cabal.cfg )
+  , _remote_repo_name  :: String   -- ^ name of the remote repo
+  --
+  , _tar_cmd :: FP.FilePath -- ^ name of the @tar@ command.
+  , _rsync_target :: Text   -- ^ e.g. user@host:/path/to/repo/
+  }
+  deriving (Show)
+
 main :: IO ()
 main =  do
       hSetBuffering stdout LineBuffering
-      shelly $ verbosely $ do
+      shelly $ verbosely $ mkOverlay (Config
+                                      "patches"
+                                      ".keys"
+                                      ".tmpl"
+                                      "cabal.cfg"
+                                      "packages"
+                                      "hackage.haskell.org"
+                                      "gtar"
+                                      "angerman@lichtzwerge.de:/data/www/hackage.mobilehaskell/")
+
+mkOverlay :: Config -> Sh ()
+mkOverlay config = do
           echo "Hey"
 
-          unlessM (test_d "patches") $
-              errorExit "patches/ folder not found"
+          unlessM (test_d (_patches config)) $
+              errorExit "patches folder not found"
 
-          unlessM (test_d "priv") $
-              errorExit "priv/ folder not found"
-
-          home_d <- get_env_text "HOME"
+          unlessM (test_d (_keys config)) $
+              errorExit "keys folder not found"
 
           rm_rf "repo.tmp"
           mkdir "repo.tmp"
@@ -34,16 +57,17 @@ main =  do
 
           mkdir_p "patches.cache"
 
-          cp "repo.0/index.html" "repo.tmp/"
-          cp "repo.0/mindtrick.jpeg" "repo.tmp/"
+          tmpl_files <- ls (_template config)
+          forM_ tmpl_files $ \path ->
+            cp_r path "repo.tmp/"
 
           pkgDir   <- absPath "repo.tmp/package"
           idxDir   <- absPath "repo.tmp/index"
-          patchDir <- absPath "patches"
-          patchCacheDir <- absPath "patches.cache"
-          cabalCfg <- absPath "cabal.cfg"
+          patchDir <- absPath (_patches config)
+          patchCacheDir <- absPath $ (_patches config) <.> "cache"
+          cabalCfg <- absPath (_cabal_cfg config)
 
-          pfns <- ls "patches"
+          pfns <- ls (_patches config)
 
           let cabalFns0 = Set.fromList $ map (fn2pid . FP.filename) $ filter (hasExt "cabal") pfns
               patchFns  = Set.fromList $ map (fn2pid . FP.filename) $ filter (hasExt "patch") pfns
@@ -52,13 +76,15 @@ main =  do
               cabalFns = cabalFns0 Set.\\ patchFns
 
           -- pre-fetch packages
-          run_ "cabal" (["--config-file=" <> toTextIgnore cabalCfg, "fetch", "--no-dependencies"] ++
+          run_ "cabal"  ["--config-file=" <> toTextIgnore (_cabal_cfg config), "update"]
+          run_ "cabal" (["--config-file=" <> toTextIgnore (_cabal_cfg config), "fetch", "--no-dependencies"] ++
                         map pid2txt (Set.toList $ cabalFns0 <> patchFns))
 
-          let get_pkgcache :: PkgId -> FP.FilePath
-              get_pkgcache (PkgId pn pv) = home_d </> ".cabal/packages/hackage.haskell.org" </> pn </> pv </> (pn <> "-" <> pv) <.> "tar.gz"
+          let get_pkgcache :: PkgId -> Sh FP.FilePath
+              get_pkgcache (PkgId pn pv) = absPath $ (_remote_repo_cache config) </> (_remote_repo_name config) </> pn </> pv </> (pn <> "-" <> pv) <.> "tar.gz" 
 
           forM_ patchFns $ \pid@(PkgId pn pv) -> do
+              pkg <- get_pkgcache pid
               withTmpDir $ \tmpdir -> do
                   let p       = pid2txt pid
                       patchFn = patchDir </> (p <.> "patch")
@@ -68,13 +94,13 @@ main =  do
                       tarCacheFn     = patchCacheDir </> (p <.> "tar.gz")
 
                   cacheHitP <- isSameContent patchFn patchCacheFn
-                  cacheHitT <- isSameContent (get_pkgcache pid) tarOrigCacheFn
+                  cacheHitT <- isSameContent pkg tarOrigCacheFn
                   let cacheHit = cacheHitT && cacheHitP
 
                   if not cacheHit
                     then -- cache MISS
                       chdir tmpdir $ do
-                          run_ "tar" [ "-xf", toTextIgnore (get_pkgcache pid) ]
+                          run_ (_tar_cmd config) [ "-xf", toTextIgnore pkg ]
 
                           chdir (fromText p) $ do
                               unlessM (test_f (pn <.> "cabal")) $
@@ -85,7 +111,7 @@ main =  do
 
                               run_ "patch" ["-i", toTextIgnore patchFn, "-p1", "--no-backup-if-mismatch"]
 
-                          run_ "tar"  [ "-cvz", "--format=ustar", "--numeric-owner", "--owner=root", "--group=root"
+                          run_ (_tar_cmd config)  [ "-cvz", "--format=ustar", "--numeric-owner", "--owner=root", "--group=root"
                                       , "-f", p <> ".tar.gz", p <> "/"
                                       ]
 
@@ -93,15 +119,16 @@ main =  do
 
                           -- update cache
                           cp patchFn                  patchCacheFn
-                          cp (get_pkgcache pid)       tarOrigCacheFn
+                          cp pkg                      tarOrigCacheFn
                           cp ("." </> p <.> "tar.gz") tarCacheFn
                     else -- cache HIT
                       cp tarCacheFn pkgDir
 
           forM_ cabalFns $ \pid@(PkgId pn pv) -> do
-              cp (get_pkgcache pid) pkgDir
+              pkg <- get_pkgcache pid
+              cp pkg pkgDir
 
-          run_ "hackage-repo-tool" ["bootstrap", "--keys", "priv/", "--repo", "repo.tmp/", "--verbose"]
+          run_ "hackage-repo-tool" ["bootstrap", "--keys", toTextIgnore (_keys config), "--repo", "repo.tmp/", "--verbose"]
 
           sleep 2
 
@@ -113,12 +140,12 @@ main =  do
 
                       cp cabalFn (idxDir </> pn </> pv </> (pn <.> "cabal"))
 
-          run_ "hackage-repo-tool" ["update", "--keys", "priv/", "--repo", "repo.tmp/", "--verbose"]
+          run_ "hackage-repo-tool" ["update", "--keys", toTextIgnore (_keys config), "--repo", "repo.tmp/", "--verbose"]
 
           rm_f "repo.tmp/01-index.tar"
           rm_rf "repo.tmp/index"
 
-          run_ "rsync" ["--delete", "-cvrz", "-e", "ssh", "repo.tmp/", "hvr@matrix.hackage.haskell.org:/var/www/head.hackage/"]
+          run_ "rsync" ["--delete", "-cvrz", "-e", "ssh", "repo.tmp/", (_rsync_target config)]
 
           return ()
   where
