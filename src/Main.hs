@@ -42,8 +42,6 @@ main =  do
 
 mkOverlay :: Config -> Sh ()
 mkOverlay config = do
-          echo "Hey"
-
           unlessM (test_d (_patches config)) $
               errorExit "patches folder not found"
 
