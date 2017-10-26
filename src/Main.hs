@@ -20,9 +20,9 @@ data Config
   { _patches           :: FP.FilePath -- ^ path to the @patches@ folder. Should contain @<package-id>-<package-version>.patch@ files.
   , _keys              :: FP.FilePath -- ^ path to the keys, as generated with the @hackage-repo-tool@.
   , _template          :: FP.FilePath -- ^ template repo. This will be copied into the temporary repo, and can contain additional files as needed.
-  , _cabal_cfg         :: FP.FilePath -- ^ the cabal config file to use. This will be used to download a copy of the base hackage repository from on which this overlay will be based.
-  , _remote_repo_cache :: FP.FilePath -- ^ path to the package cache ( should match the one in the cabal.cfg )
+  , _remote_repo_cache :: FP.FilePath -- ^ path to the package cache
   , _remote_repo_name  :: String   -- ^ name of the remote repo
+  , _remote_repo_url   :: String   -- ^ url of the remote repo
   --
   , _tar_cmd           :: FP.FilePath -- ^ name of the @tar@ command.
   , _rsync_target      :: Text   -- ^ e.g. user@host:/path/to/repo/
@@ -34,9 +34,9 @@ configParser = Config
                <$> strOption (value "patches" <> showDefault <> long "patches"  <> metavar "PATCHES"  <> help "Folder containing the patches")
                <*> strOption (value ".keys"   <> showDefault <> long "keys"     <> metavar "KEYS"     <> help "Folder containing the repo-tool keys")
                <*> strOption (value ".tmpl"   <> showDefault <> long "template" <> metavar "TEMPLATE" <> help "Template repository to use as a starting point")
-               <*> strOption (value "cabal.cfg" <> showDefault <> long "cabal-cfg" <> metavar "CABALCFG" <> help "The cabal.cfg file to download the upstream repo")
                <*> strOption (value "packages" <> showDefault <> long "repo-cache" <> metavar "REPOCACHE" <> help "The path to the package cache.")
                <*> strOption (value "hackage.haskell.org" <> showDefault <> long "repo-name" <> metavar "REPONAME" <> help "The name of the remote repo.")
+               <*> strOption (value "http://hackage-origin.haskell.org/" <> showDefault <> long "repo-url" <> metavar "URL" <> help "The url of the remote repo.")
                <*> strOption (value "tar" <> showDefault <> long "tar" <> metavar "TAR" <> help "`tar` command.")
                <*> argument str (metavar "TARGET" <> help "The rsync target e.g. user@host:/path/to/repo")
 
@@ -72,7 +72,6 @@ mkOverlay config = do
   idxDir   <- absPath "repo.tmp/index"
   patchDir <- absPath (_patches config)
   patchCacheDir <- absPath $ (_patches config) <.> "cache"
-  cabalCfg <- absPath (_cabal_cfg config)
 
   pfns <- ls (_patches config)
 
@@ -83,9 +82,19 @@ mkOverlay config = do
       cabalFns = cabalFns0 Set.\\ patchFns
 
   -- pre-fetch packages
-  run_ "cabal"  ["--config-file=" <> toTextIgnore (_cabal_cfg config), "update"]
-  run_ "cabal" (["--config-file=" <> toTextIgnore (_cabal_cfg config), "fetch", "--no-dependencies"] ++
-                map pid2txt (Set.toList $ cabalFns0 <> patchFns))
+  withTmpDir $ \tmpdir -> do
+    let cfgFile = tmpdir </> "cabal.cfg"
+    writefile cfgFile $ T.unlines
+      [ "repository " <> toTextArg (_remote_repo_name config)
+      , "  url: " <> toTextArg (_remote_repo_url config)
+      , "  secure: True"
+      , ""
+      , "http-transport: plain-http"
+      , "remote-repo-cache: " <> toTextIgnore (_remote_repo_cache config)
+      ]
+    run_ "cabal"  ["--config-file=" <> toTextIgnore cfgFile, "update"]
+    run_ "cabal" (["--config-file=" <> toTextIgnore cfgFile, "fetch", "--no-dependencies"] ++
+                  map pid2txt (Set.toList $ cabalFns0 <> patchFns))
 
   let get_pkgcache :: PkgId -> Sh FP.FilePath
       get_pkgcache (PkgId pn pv) = absPath $ (_remote_repo_cache config) </> (_remote_repo_name config) </> pn </> pv </> (pn <> "-" <> pv) <.> "tar.gz"
