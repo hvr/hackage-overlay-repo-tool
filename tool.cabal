@@ -21,6 +21,7 @@ executable tool
                , text            ^>= 1.2.2.2
                , system-filepath ^>= 0.4.13.4
                , containers      ^>= 0.5.6.2
+               , optparse-applicative ^>= 0.14.0.0
 
   if !impl(ghc >= 8)
     build-depends: semigroups    ^>= 0.18.3
