@@ -1,15 +1,16 @@
-{-# LANGUAGE OverloadedStrings, LambdaCase #-}
 {-# LANGUAGE ExtendedDefaultRules #-}
+{-# LANGUAGE LambdaCase           #-}
+{-# LANGUAGE OverloadedStrings    #-}
 {-# OPTIONS_GHC -fno-warn-type-defaults #-}
 
-import Shelly
-import qualified Data.Text as T
-import Data.Text (Text)
-import System.IO
+import           Control.Monad
+import           Data.Semigroup
+import qualified Data.Set                  as Set
+import           Data.Text                 (Text)
+import qualified Data.Text                 as T
 import qualified Filesystem.Path.CurrentOS as FP
-import Control.Monad
-import Data.Semigroup
-import qualified Data.Set as Set
+import           Shelly
+import           System.IO
 
 default (T.Text)
 
@@ -57,6 +58,15 @@ main =  do
 
           let get_pkgcache :: PkgId -> FP.FilePath
               get_pkgcache (PkgId pn pv) = home_d </> ".cabal/packages/hackage.haskell.org" </> pn </> pv </> (pn <> "-" <> pv) <.> "tar.gz"
+
+          forM_ patchFns $ \pid -> do
+             tmp <- test_f (get_pkgcache pid)
+             inspect (tmp,pid2txt pid)
+             unless tmp $ do
+               run_ "cabal" ["--config-file=" <> toTextIgnore cabalCfg, "fetch", "--no-dependencies", pid2txt pid]
+
+             True <- test_f (get_pkgcache pid)
+             return ()
 
           forM_ patchFns $ \pid@(PkgId pn pv) -> do
               withTmpDir $ \tmpdir -> do
@@ -118,7 +128,7 @@ main =  do
           rm_f "repo.tmp/01-index.tar"
           rm_rf "repo.tmp/index"
 
-          run_ "rsync" ["--delete", "-cvrz", "-e", "ssh", "repo.tmp/", "hvr@matrix.hackage.haskell.org:/var/www/head.hackage/"]
+          run_ "rsync" ["--delete", "-cvrz", "-e", "ssh", "repo.tmp/", "hvr@matrix.hackage.haskell.org:/home/hvr/head.hackage/"]
 
           return ()
   where
