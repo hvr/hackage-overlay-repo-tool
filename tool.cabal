@@ -17,7 +17,7 @@ executable tool
                  ||              ^>= 4.9.0.0
                  ||              ^>= 4.10.0.0
 
-               , shelly          ^>= 1.6.8.4
+               , shelly          ^>= 1.7
                , text            ^>= 1.2.2.2
                , system-filepath ^>= 0.4.13.4
                , containers      ^>= 0.5.6.2

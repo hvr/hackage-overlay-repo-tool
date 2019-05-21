@@ -25,7 +25,7 @@ data Config
   , _remote_repo_url   :: String   -- ^ url of the remote repo
   --
   , _tar_cmd           :: FP.FilePath -- ^ name of the @tar@ command.
-  , _rsync_target      :: Text   -- ^ e.g. user@host:/path/to/repo/
+  , _target            :: Text   -- ^ e.g. user@host:/path/to/repo/
   }
   deriving (Show)
 
@@ -38,7 +38,7 @@ configParser = Config
                <*> strOption (value "hackage.haskell.org" <> showDefault <> long "repo-name" <> metavar "REPONAME" <> help "The name of the remote repo.")
                <*> strOption (value "http://hackage-origin.haskell.org/" <> showDefault <> long "repo-url" <> metavar "URL" <> help "The url of the remote repo.")
                <*> strOption (value "tar" <> showDefault <> long "tar" <> metavar "TAR" <> help "`tar` command.")
-               <*> argument str (metavar "TARGET" <> help "The rsync target e.g. user@host:/path/to/repo")
+               <*> argument str (metavar "TARGET" <> help "The rsync target e.g. user@host:/path/to/repo; or an s3 bucket e.g. s3://<bucket>/ -- will use `aws` cli")
 
 main :: IO ()
 main = hSetBuffering stdout LineBuffering
@@ -161,7 +161,9 @@ mkOverlay config = do
   rm_f "repo.tmp/01-index.tar"
   rm_rf "repo.tmp/index"
 
-  run_ "rsync" ["--delete", "-cvrz", "-e", "ssh", "repo.tmp/", (_rsync_target config)]
+  if "s3://" `T.isPrefixOf` (_target config)
+    then run_ "aws" ["s3", "sync", "repo.tmp/", (_target config)]
+    else run_ "rsync" ["--delete", "-cvrz", "-e", "ssh", "repo.tmp/", (_target config)]
 
   return ()
 
