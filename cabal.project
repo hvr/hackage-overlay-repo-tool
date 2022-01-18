@@ -1,0 +1,10 @@
+packages: .
+
+source-repository-package
+  type: git
+  location: https://github.com/haskell/hackage-security.git
+  tag: f45ae75cf58e9c614451106f445c0cd5d4a2e9b9
+  subdir:
+    hackage-repo-tool
+
+allow-newer: all
