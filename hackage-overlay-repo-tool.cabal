@@ -24,6 +24,7 @@ executable hackage-overlay-repo-tool
                , system-filepath ^>= 0.4.13.4
                , containers      ^>= 0.5.6.2
                , optparse-applicative ^>= 0.16.0.0
+               , filepath
 
   if !impl(ghc >= 8)
     build-depends: semigroups    ^>= 0.18.3

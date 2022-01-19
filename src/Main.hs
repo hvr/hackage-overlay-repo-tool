@@ -12,6 +12,9 @@ import           Shelly
 import           System.IO
 import           Options.Applicative
 
+import qualified System.FilePath as FP
+
+
 default (T.Text)
 
 data Config
@@ -72,10 +75,10 @@ mkOverlay config = do
   patchDir <- absPath (_patches config)
   patchCacheDir <- absPath $ (_patches config) <.> "cache"
 
-  pfns <- ls (_patches config)
+  pfns <- ls (_patches config) >>= mapM (relativeTo (_patches config))
 
-  let cabalFns0 = Set.fromList $ map fn2pid $ filter (hasExt "cabal") pfns
-      patchFns  = Set.fromList $ map fn2pid $ filter (hasExt "patch") pfns
+  let cabalFns0 = Set.fromList $ map fn2pid $ filter (hasExt ".cabal") pfns
+      patchFns  = Set.fromList $ map fn2pid $ filter (hasExt ".patch") pfns
 
       -- .cabal only fixups via revisions
       cabalFns = cabalFns0 Set.\\ patchFns
@@ -92,8 +95,9 @@ mkOverlay config = do
       , "remote-repo-cache: " <> toTextIgnore (_remote_repo_cache config)
       ]
     run_ "cabal"  ["--config-file=" <> toTextIgnore cfgFile, "update"]
-    run_ "cabal" (["--config-file=" <> toTextIgnore cfgFile, "fetch", "--no-dependencies"] ++
-                  map pid2txt (Set.toList $ cabalFns0 <> patchFns))
+    forM_ (Set.toList $ cabalFns0 <> patchFns) $ \pkg ->
+      run_ "cabal" ["--config-file=" <> toTextIgnore cfgFile, "fetch", "--no-dependencies", pid2txt pkg]
+
 
   let get_pkgcache :: PkgId -> Sh FilePath
       get_pkgcache (PkgId pn pv) = absPath $ (_remote_repo_cache config) </> (_remote_repo_name config) </> pn </> pv </> (pn <> "-" <> pv) <.> "tar.gz"

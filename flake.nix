@@ -4,7 +4,9 @@
   inputs.haskellNix.url = "github:input-output-hk/haskell.nix";
   inputs.haskellNix.inputs.nixpkgs.follows = "nixpkgs";
   inputs.flake-utils.url = "github:numtide/flake-utils";
-  outputs = { self, haskellNix, nixpkgs, flake-utils }:
+  inputs.cabal.url = "github:haskell/cabal?ref=cabal-install-v3.4.1.0";
+  inputs.cabal.flake = false;
+  outputs = { self, haskellNix, nixpkgs, flake-utils, cabal }:
     let systems = [ "x86_64-linux" ]; in
     flake-utils.lib.eachSystem systems (system:
       let pkgs = haskellNix.legacyPackages.${system}; in
@@ -20,13 +22,21 @@
         };
         sha256map = {
             "https://github.com/haskell/hackage-security.git"."f45ae75cf58e9c614451106f445c0cd5d4a2e9b9" = "02zi6kaczmb21lxvc01wsqq38inq0l3yn88c4bgahlf4ikjb1yfn";
+            # "https://github.com/haskell/cabal.git"."d9c8473d7f367ccb534b68c5d6a9672b30febc31" = "04sbn42wxwx46b6vg658nqmjbv23lr5y8mavhhiwp0s3kjlkjj3a";
         };
+      }; in
+      let drv2 = pkgs': pkgs'.haskell-nix.project {
+          compiler-nix-name = "ghc8107";
+          index-state = "2022-01-15T00:00:00Z";
+          projectFileName = "cabal.project";
+          src = cabal;
       }; in
       rec {
           packages = ({
               "x86_64-linux" = rec {
                   hackage-overlay-repo-tool = (drv pkgs.pkgsCross.musl64).hackage-overlay-repo-tool.components.exes.hackage-overlay-repo-tool;
                   hackage-repo-tool = (drv pkgs.pkgsCross.musl64).hackage-repo-tool.components.exes.hackage-repo-tool;
+                #   cabal-install = (drv2 pkgs.pkgsCross.musl64).cabal-install.components.exes.cabal;
                   tarball = pkgs.stdenv.mkDerivation {
                       name = "hackage-overlay-tools";
                       phases = [ "installPhase" ];

@@ -16,6 +16,23 @@
         "type": "github"
       }
     },
+    "cabal": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1633795736,
+        "narHash": "sha256-QYSd8ym07ON6NvVSANubWLGowlpSf42ciSQAY8h3WdQ=",
+        "owner": "haskell",
+        "repo": "cabal",
+        "rev": "12f6894cfb154b256342c57348cb754bb18d073d",
+        "type": "github"
+      },
+      "original": {
+        "owner": "haskell",
+        "ref": "cabal-install-v3.4.1.0",
+        "repo": "cabal",
+        "type": "github"
+      }
+    },
     "cabal-32": {
       "flake": false,
       "locked": {
@@ -313,6 +330,7 @@
     },
     "root": {
       "inputs": {
+        "cabal": "cabal",
         "flake-utils": "flake-utils",
         "haskellNix": "haskellNix",
         "nixpkgs": "nixpkgs"
