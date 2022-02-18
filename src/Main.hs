@@ -8,7 +8,7 @@ import           Data.Semigroup          hiding (option)
 import qualified Data.Set                  as Set
 import           Data.Text                 (Text)
 import qualified Data.Text                 as T
-import qualified Filesystem.Path.CurrentOS as FP
+import           System.FilePath (takeFileName)
 import           Shelly
 import           System.IO
 import           Options.Applicative
@@ -17,14 +17,14 @@ default (T.Text)
 
 data Config
   = Config
-  { _patches           :: FP.FilePath -- ^ path to the @patches@ folder. Should contain @<package-id>-<package-version>.patch@ files.
-  , _keys              :: FP.FilePath -- ^ path to the keys, as generated with the @hackage-repo-tool@.
-  , _template          :: FP.FilePath -- ^ template repo. This will be copied into the temporary repo, and can contain additional files as needed.
-  , _remote_repo_cache :: FP.FilePath -- ^ path to the package cache
+  { _patches           :: FilePath -- ^ path to the @patches@ folder. Should contain @<package-id>-<package-version>.patch@ files.
+  , _keys              :: FilePath -- ^ path to the keys, as generated with the @hackage-repo-tool@.
+  , _template          :: FilePath -- ^ template repo. This will be copied into the temporary repo, and can contain additional files as needed.
+  , _remote_repo_cache :: FilePath -- ^ path to the package cache
   , _remote_repo_name  :: String   -- ^ name of the remote repo
   , _remote_repo_url   :: String   -- ^ url of the remote repo
   --
-  , _tar_cmd           :: FP.FilePath -- ^ name of the @tar@ command.
+  , _tar_cmd           :: FilePath -- ^ name of the @tar@ command.
   , _rsync_target      :: Text   -- ^ e.g. user@host:/path/to/repo/
   }
   deriving (Show)
@@ -75,8 +75,8 @@ mkOverlay config = do
 
   pfns <- ls (_patches config)
 
-  let cabalFns0 = Set.fromList $ map (fn2pid . FP.filename) $ filter (hasExt "cabal") pfns
-      patchFns  = Set.fromList $ map (fn2pid . FP.filename) $ filter (hasExt "patch") pfns
+  let cabalFns0 = Set.fromList $ map (fn2pid . takeFileName) $ filter (hasExt "cabal") pfns
+      patchFns  = Set.fromList $ map (fn2pid . takeFileName) $ filter (hasExt "patch") pfns
 
       -- .cabal only fixups via revisions
       cabalFns = cabalFns0 Set.\\ patchFns
@@ -96,7 +96,7 @@ mkOverlay config = do
     run_ "cabal" (["--config-file=" <> toTextIgnore cfgFile, "fetch", "--no-dependencies"] ++
                   map pid2txt (Set.toList $ cabalFns0 <> patchFns))
 
-  let get_pkgcache :: PkgId -> Sh FP.FilePath
+  let get_pkgcache :: PkgId -> Sh FilePath
       get_pkgcache (PkgId pn pv) = absPath $ (_remote_repo_cache config) </> (_remote_repo_name config) </> pn </> pv </> (pn <> "-" <> pv) <.> "tar.gz"
 
   forM_ patchFns $ \pid@(PkgId pn pv) -> do
@@ -179,7 +179,7 @@ data PkgId = PkgId !Text !Text
 pid2txt :: PkgId -> Text
 pid2txt (PkgId pn pv) = pn <> "-" <> pv
 
-fn2pid :: FP.FilePath -> PkgId
+fn2pid :: FilePath -> PkgId
 fn2pid fn = PkgId (T.init pn) pv
   where
     (pn,pv) = T.breakOnEnd "-" t
